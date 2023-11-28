@@ -1,3 +1,4 @@
+*.pickle
 *.db
 .venv/
 __pycache__/
