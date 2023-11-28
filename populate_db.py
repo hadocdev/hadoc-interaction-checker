@@ -17,13 +17,13 @@ def get_details_from_pair(interaction_pair):
     severity = interaction_pair["severity"]
     left, right = interaction_pair["interactionConcept"]
     left_name = left["sourceConceptItem"]["name"]
-    left_url = left["sourceConceptItem"]["url"]
+    left_sourceid = int(left["sourceConceptItem"]["id"][2:])
     left_rxcui = int(left["minConceptItem"]["rxcui"])
     right_name = right["sourceConceptItem"]["name"]
-    right_url = right["sourceConceptItem"]["url"]
+    right_sourceid = right["sourceConceptItem"]["id"][2:]
     right_rxcui = int(right["minConceptItem"]["rxcui"])
-    left = {"name": left_name, "url": left_url, "rxcui": left_rxcui}
-    right = {"name": right_name, "url": right_url, "rxcui": right_rxcui}
+    left = {"name": left_name, "source_id": left_sourceid, "rxcui": left_rxcui}
+    right = {"name": right_name, "source_id": right_sourceid, "rxcui": right_rxcui}
     return description, severity, left, right
 
 
@@ -44,28 +44,27 @@ def interaction_exists(left_drug, right_drug):
     return exists
 
 
-def process_one_pair(interaction_pair, source_name, session):
+def process_one_pair(interaction_pair, session):
     description, severity, left, right = get_details_from_pair(interaction_pair)
 
-    left_drug = session.scalar(select(Generic).filter_by(rxcui=left["rxcui"]))
-    right_drug = session.scalar(select(Generic).filter_by(rxcui=right["rxcui"]))
+    left_drug = session.scalar(select(Generic).filter_by(source_id=left["source_id"]))
+    right_drug = session.scalar(select(Generic).filter_by(source_id=right["source_id"]))
 
     if left_drug is None:
-        left_drug = Generic(rxcui=left["rxcui"], name=left["name"])
+        left_drug = Generic(
+            rxcui=left["rxcui"], name=left["name"], source_id=left["source_id"]
+        )
         print(f"Adding {left_drug} to database")
         session.add(left_drug)
     if right_drug is None:
-        right_drug = Generic(rxcui=right["rxcui"], name=right["name"])
-        print(f"Adding {left_drug} to database")
+        right_drug = Generic(
+            rxcui=right["rxcui"], name=right["name"], source_id=right["source_id"]
+        )
+        print(f"Adding {right_drug} to database")
         session.add(right_drug)
 
     if not interaction_exists(left_drug, right_drug):
-        interaction = Interaction(
-            description=description,
-            severity=severity,
-            source_name=source_name,
-            source_urls=f"{left['url']}, {right['url']}",
-        )
+        interaction = Interaction(description=description)
         # interaction.generics.append(left_drug)
         # interaction.generics.append(right_drug)
         left_drug.interactions.append(interaction)
@@ -114,10 +113,11 @@ def populate_db(
             continue
         if "interactionTypeGroup" in data:
             for interaction_group in data["interactionTypeGroup"]:
-                source_name = interaction_group["sourceName"]
+                if interaction_group["sourceName"] != "DrugBank":
+                    continue
                 for interaction_type in interaction_group["interactionType"]:
                     for interaction_pair in interaction_type["interactionPair"]:
-                        process_one_pair(interaction_pair, source_name, session)
+                        process_one_pair(interaction_pair, session)
             print("committing changes to database")
             session.commit()
             succeeded.append(id)
